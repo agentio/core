@@ -106,7 +106,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		if err2 != nil {
 			fmt.Println("There was an error", err2)
 		}
-	}
+		w}
 }
 
 func myNotFoundHandler(w http.ResponseWriter, r *http.Request) {
