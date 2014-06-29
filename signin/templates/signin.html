@@ -1,0 +1,19 @@
+
+
+{{define "body"}}
+<div class="row">
+	<div class="medium-6 medium-centered columns">
+		<form method="post" action="/signin/">
+			<fieldset>
+				<legend>{{.Message}}</legend>
+				<div>
+					<label for="username" style="margin-right:2em">Username <input id="username" type="text" width="20" name="username" title="username" value="{{.Username}}"></label> 
+					<label for="password" style="margin-right:2em">Password <input id="password" type="password" width="20" name="password" title="password" value="{{.Password}}"></label>
+                    <button class="button tiny"
+                              type="submit">&nbsp;Sign in&nbsp;</button>
+				</div>
+			</fieldset>
+		</form>
+	</div>
+</div>
+{{end}}

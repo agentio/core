@@ -1,0 +1,6 @@
+name: signin
+capacity: 2
+paths:
+  - signin
+  - signout
+description: Signin and signout support.
