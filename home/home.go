@@ -106,7 +106,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		if err2 != nil {
 			fmt.Println("There was an error", err2)
 		}
-		w}
+	}
 }
 
 func myNotFoundHandler(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +117,7 @@ var port = flag.Uint("p", 8080, "the port to use for serving HTTP requests")
 
 func main() {
 	http.HandleFunc("/home", homeHandler)
-	http.HandleFunc("/home/", homeHandler)	
+	http.HandleFunc("/home/", homeHandler)
 
 	flag.Parse()
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%v", *port), nil))
