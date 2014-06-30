@@ -131,7 +131,7 @@ func getRequestHandler(w http.ResponseWriter, r *http.Request) {
 	var node Node
 	err := getNodeForPath(path, &node)
 	if err != nil {
-		http.Error(w, "GET node does not exist", 404)
+		http.Error(w, "Not found", 404)
 		return
 	}
 	if node.Collection {
@@ -265,7 +265,7 @@ func mkcolRequestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// If a node with name already exists, report an error
-	path := r.URL.Path
+	path := strings.TrimRight(r.URL.Path, "/")
 	var node Node
 	err = getNodeForPath(path, &node)
 	if err == nil {
