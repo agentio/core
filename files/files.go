@@ -179,7 +179,7 @@ func deleteRequestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// If the node doesn't exist, report an error
-	path := r.URL.Path
+	path := strings.TrimRight(r.URL.Path, "/")
 	var node Node
 	err = getNodeForPath(path, &node)
 	if err != nil {
@@ -223,6 +223,7 @@ func putRequestHandler(w http.ResponseWriter, r *http.Request) {
 				"length": len(appfiledata),
 			}
 			nodesCollection.Update(bson.M{"_id": node.Id}, bson.M{"$set": update})
+			w.WriteHeader(200)
 		}
 	} else {
 		// the node doesn't exist
@@ -243,6 +244,7 @@ func putRequestHandler(w http.ResponseWriter, r *http.Request) {
 		newNode.Hash = hash
 		newNode.Length = uint64(len(appfiledata))
 		nodesCollection.Insert(&newNode)
+		w.WriteHeader(201)
 	}
 	// store the put data
 	mongoSession := getMongoSession()
@@ -269,6 +271,7 @@ func mkcolRequestHandler(w http.ResponseWriter, r *http.Request) {
 	var node Node
 	err = getNodeForPath(path, &node)
 	if err == nil {
+		fmt.Println("already exists")
 		http.Error(w, "MKCOL file or collection already exists", 405)
 		return
 	}
@@ -276,6 +279,8 @@ func mkcolRequestHandler(w http.ResponseWriter, r *http.Request) {
 	var parentId bson.ObjectId
 	err = getParentIdForPath(parentPath(path), &parentId)
 	if err != nil {
+		fmt.Println("no parent directory")
+		
 		http.Error(w, "MKCOL no parent directory", 409)
 		return
 	}
@@ -299,6 +304,10 @@ func propfindRequestHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func optionsRequestHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header()["Allow"] = []string{"OPTIONS, GET, HEAD, POST, PUT, DELETE, TRACE, COPY, MOVE, MKCOL, PROPFIND, PROPPATCH, LOCK, UNLOCK, ORDERPATCH"}
+	w.Header()["DAV"] = []string{"1, 2"}
+	w.WriteHeader(200)
+	w.Write([]byte("OK"))
 }
 
 func lockRequestHandler(w http.ResponseWriter, r *http.Request) {
