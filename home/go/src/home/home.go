@@ -113,9 +113,11 @@ func myNotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "Hello!")
 }
 
+
 var port = flag.Uint("p", 8080, "the port to use for serving HTTP requests")
 
 func main() {
+        http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/home", homeHandler)
 	http.HandleFunc("/home/", homeHandler)
 

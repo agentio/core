@@ -280,7 +280,7 @@ func mkcolRequestHandler(w http.ResponseWriter, r *http.Request) {
 	err = getParentIdForPath(parentPath(path), &parentId)
 	if err != nil {
 		fmt.Println("no parent directory")
-		
+
 		http.Error(w, "MKCOL no parent directory", 409)
 		return
 	}
@@ -294,8 +294,138 @@ func mkcolRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+/*
+(def copy-node (mongo sourceNode destinationParent destinationName)
+     (set sourceID (sourceNode _id:))
+     (sourceNode removeObjectForKey:"_id")
+     (sourceNode parent:(destinationParent _id:))
+     (if destinationName
+         (sourceNode name:destinationName))
+     (set destinationID (mongo insertObject:sourceNode
+                             intoCollection:"files.nodes"))
+     (sourceNode _id:destinationID)
+     (if (sourceNode collection:)
+         (set children (mongo findArray:(dict parent:sourceID) inCollection:"files.nodes"))
+         (children each:
+                   (do (child)
+                       (copy-node mongo child sourceNode nil)))))
+
+(copy "/*path:"
+      (puts "COPY #{*path}")
+      (set mongo (AgentMongoDB new))
+      (mongo connect)
+
+      (set pathToCopyFrom *path)
+      (puts "PATH TO COPY FROM: #{pathToCopyFrom}")
+
+      (set overwrite ((REQUEST headers) Overwrite:))
+      (set destination (decode ((REQUEST headers) Destination:)))
+      (puts "DESTINATION: #{destination}")
+
+      (set destination (destination stringByReplacingOccurrencesOfString:(+ (server REQUEST) "/") withString:""))
+      (if (eq (destination characterAtIndex:(- (destination length) 1)) '/')
+          (set destination (destination substringWithRange:(list 0 (- (destination length) 1)))))
+      (set pathToCopyTo destination)
+      (puts "PATH TO COPY TO: #{pathToCopyTo}")
+
+      (set sourceNode (node-for-path mongo pathToCopyFrom))
+      (set destinationNode (node-for-path mongo pathToCopyTo))
+      (set destinationParent (node-for-path mongo (pathToCopyTo stringByDeletingLastPathComponent)))
+
+      (puts "copying #{pathToCopyFrom} to #{pathToCopyTo}")
+      (puts "destination: #{pathToCopyTo} #{(destinationNode description)}")
+
+      (cond ((and (eq overwrite "F") destinationNode)
+             (puts "WE WILL NOT OVERRIDE #{pathToCopyTo}")
+             (RESPONSE setStatus:412)
+             "")
+            ((not destinationParent)
+             (set message "no destination directory: #{(pathToCopyTo stringByDeletingLastPathComponent)}")
+             (RESPONSE setStatus:409)
+             message)
+            (else
+                 (if destinationNode
+                     (then (delete-node mongo destinationNode)
+                           (RESPONSE setStatus:204))
+                     (else (RESPONSE setStatus:201)))
+                 (copy-node mongo sourceNode destinationParent (pathToCopyTo lastPathComponent))
+                 "OK")))
+
+*/
+
 func copyRequestHandler(w http.ResponseWriter, r *http.Request) {
+	sourcePath := strings.TrimRight(r.URL.Path, "/")
+
+	overwrite := r.Header["Overwrite"]
+	destination := r.Header["Destination"]
+
+	fmt.Printf("source path %v\n", sourcePath)
+	fmt.Printf("overwrite %v\n", overwrite)
+	fmt.Printf("destination %v\n", destination)
+	fmt.Printf("host %v\n", r.Host)
+
+	parts := strings.Split(destination[0], r.Host)
+	fmt.Printf("parts %+v\n", parts)
+	
+	destinationPath := strings.TrimRight(parts[1], "/")
+	
+	fmt.Printf("destination path %+v\n", destinationPath)
+
 }
+
+/*
+
+(def move-node (mongo sourceNode destinationParent destinationName)
+     (sourceNode parent:(destinationParent _id:))
+     (if destinationName
+         (sourceNode name:destinationName))
+     (mongo updateObject:sourceNode
+            inCollection:"files.nodes"
+           withCondition:(dict _id:(sourceNode _id:))
+       insertIfNecessary:YES
+   updateMultipleEntries:NO))
+
+(move "/*path:"
+      (puts "MOVE #{*path}")
+      (set mongo (AgentMongoDB new))
+      (mongo connect)
+
+      (set pathToMoveFrom *path)
+
+      (set overwrite ((REQUEST headers) Overwrite:))
+
+      (set destination (decode ((REQUEST headers) Destination:)))
+      (puts "DESTINATION: #{destination}")
+
+      (set destination (destination stringByReplacingOccurrencesOfString:(+ (server REQUEST) "/") withString:""))
+      (if (eq (destination characterAtIndex:(- (destination length) 1)) '/')
+          (set destination (destination substringWithRange:(list 0 (- (destination length) 1)))))
+
+      (set pathToMoveTo destination)
+
+      (set sourceNode (node-for-path mongo pathToMoveFrom))
+      (set destinationNode (node-for-path mongo pathToMoveTo))
+      (set destinationParent (node-for-path mongo (pathToMoveTo stringByDeletingLastPathComponent)))
+
+      (puts "moving #{pathToMoveFrom} to #{pathToMoveTo}")
+      (puts "destination exists? #{pathToMoveTo} #{destinationNode}")
+
+      (cond ((and (eq overwrite "F") destinationNode)
+             (RESPONSE setStatus:412)
+             "")
+            ((not destinationParent)
+             (puts "no destination directory: #{(pathToMoveTo stringByDeletingLastPathComponent)}")
+             (RESPONSE setStatus:409)
+             "")
+            (else
+                 (if destinationNode
+                     (delete-node mongo destinationNode))
+                 (move-node mongo sourceNode destinationParent (pathToMoveTo lastPathComponent))
+                 (if destinationNode
+                     (then (RESPONSE setStatus:204))
+                     (else (RESPONSE setStatus:201)))
+                 "OK")))
+*/
 
 func moveRequestHandler(w http.ResponseWriter, r *http.Request) {
 }

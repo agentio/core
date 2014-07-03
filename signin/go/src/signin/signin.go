@@ -33,25 +33,6 @@ func md5HashWithSalt(input, salt string) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-type Signin struct {
-	Message  string
-	Username string
-	Password string
-}
-
-type User struct {
-	ID       bson.ObjectId `bson:"_id,omitempty"`
-	Username string
-	Password string
-}
-
-type Session struct {
-	ID       bson.ObjectId `bson:"_id,omitempty"`
-	Value    string
-	Username string
-	Expires  time.Time
-}
-
 func (self Session) String() string {
 	var buffer bytes.Buffer
 	buffer.WriteString(self.Value)
