@@ -1,5 +1,5 @@
 name: signin
-capacity: 2
+capacity: 1
 paths:
   - signin
   - signout

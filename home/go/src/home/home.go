@@ -12,6 +12,7 @@ import (
 	"labix.org/v2/mgo/bson"
 	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -62,7 +63,15 @@ func (self Session) String() string {
 }
 
 func getMongoSession() (mongoSession *mgo.Session) {
-	mongoSession, err := mgo.Dial("127.0.0.1")
+	AGENT_MONGO_HOST := os.Getenv("AGENT_MONGO_HOST")
+	if len(AGENT_MONGO_HOST) == 0 {
+		AGENT_MONGO_HOST = "127.0.0.1"
+	}
+	var dialInfo mgo.DialInfo
+	dialInfo.Addrs = []string{AGENT_MONGO_HOST}
+	dialInfo.Username = "root"
+	dialInfo.Password = "agent123"
+	mongoSession, err := mgo.DialWithInfo(&dialInfo)
 	if err != nil {
 		panic(err)
 	}
@@ -113,11 +122,10 @@ func myNotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "Hello!")
 }
 
-
 var port = flag.Uint("p", 8080, "the port to use for serving HTTP requests")
 
 func main() {
-        http.HandleFunc("/", rootHandler)
+	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/home", homeHandler)
 	http.HandleFunc("/home/", homeHandler)
 

@@ -13,6 +13,7 @@ import (
 	"labix.org/v2/mgo/bson"
 	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -108,7 +109,15 @@ func signinHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getMongoSession() (mongoSession *mgo.Session) {
-	mongoSession, err := mgo.Dial("127.0.0.1")
+	AGENT_MONGO_HOST := os.Getenv("AGENT_MONGO_HOST")
+	if len(AGENT_MONGO_HOST) == 0 {
+		AGENT_MONGO_HOST = "127.0.0.1"
+	}
+        var dialInfo mgo.DialInfo
+        dialInfo.Addrs = []string{AGENT_MONGO_HOST}
+        dialInfo.Username = "root"
+        dialInfo.Password = "agent123"
+        mongoSession, err := mgo.DialWithInfo(&dialInfo)
 	if err != nil {
 		panic(err)
 	}
@@ -156,7 +165,7 @@ func main() {
 	http.HandleFunc("/signin/", signinHandler)
 	http.HandleFunc("/signout", signoutHandler)
 	http.HandleFunc("/signout/", signoutHandler)
-	
+
 	flag.Parse()
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%v", *port), nil))
 }

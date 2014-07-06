@@ -1,0 +1,5 @@
+name: ticker
+capacity: 1
+paths: 
+  - ticker
+description: Agent event runner.

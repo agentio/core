@@ -1,5 +1,5 @@
 name: home
-capacity: 2
+capacity: 1
 paths: 
   - home
 description: Agent home page.
