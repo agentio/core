@@ -5,10 +5,12 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/gorilla/mux"
+	"io/ioutil"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"log"
@@ -32,25 +34,30 @@ func dumpRequest(request *http.Request) {
 }
 
 type User struct {
-	Id       bson.ObjectId `json:"id" bson:"_id,omitempty"`
-	Username string        `json:"username"`
-	Password string        `json:"password"`
+	Id       bson.ObjectId `bson:"_id,omitempty" json:"id"`
+	Username string        `json:"username" bson:"username"`
+	Password string        `json:"password" bson:"password"`
 }
 
 type QueueEntry struct {
-	ID       bson.ObjectId `bson:"_id,omitempty"`
-	Time     time.Time
-	Password string
-	EventId  bson.ObjectId
+	Id      bson.ObjectId `bson:"_id,omitempty"`
+	Time    time.Time     `bson:"time"`
+	EventId bson.ObjectId `bson:"eventid"`
 }
 
 type Event struct {
-	ID       bson.ObjectId `bson:"_id,omitempty"`
-	Name     string
-	Periodic bool
-	Interval int64
-	Method   string
-	Url      string
+	Id       bson.ObjectId `bson:"_id,omitempty" json:"id"`
+	Name     string        `bson:"name" json:"name"`
+	Periodic bool          `bson:"periodic" json:"periodic"`
+	Interval int64         `bson:"interval" json:"interval"`
+	Method   string        `bson:"method" json:"method"`
+	Url      string        `bson:"url" json:"url"`
+}
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func md5HashWithSalt(input, salt string) string {
@@ -74,8 +81,10 @@ func getMongoSession() (mongoSession *mgo.Session) {
 	}
 	var dialInfo mgo.DialInfo
 	dialInfo.Addrs = []string{AGENT_MONGO_HOST}
-	dialInfo.Username = "root"
-	dialInfo.Password = "agent123"
+	if AGENT_MONGO_HOST != "127.0.0.1" {
+		dialInfo.Username = "root"
+		dialInfo.Password = "agent123"
+	}
 	mongoSession, err := mgo.DialWithInfo(&dialInfo)
 	if err != nil {
 		panic(err)
@@ -84,28 +93,134 @@ func getMongoSession() (mongoSession *mgo.Session) {
 	return mongoSession
 }
 
-func getEventsHandler(w http.ResponseWriter, r *http.Request) {
+// generate an appropriate response
+func respondWithResult(w http.ResponseWriter, result interface{}) {
+	jsonData, err := json.Marshal(result)
+	if err != nil {
+		fmt.Println(err)
+	}
+	w.Write(jsonData)
+}
 
+func getEventsHandler(w http.ResponseWriter, r *http.Request) {
+	var events []Event
+	mongoSession := getMongoSession()
+	collection := mongoSession.DB("ticker").C("events")
+	err := collection.Find(nil).All(&events)
+	check(err)
+	if events == nil {
+		events = []Event{}
+	}
+	respondWithResult(w, events)
+}
+
+func enqueueEventWithId(eventid bson.ObjectId) {
+	mongoSession := getMongoSession()
+	eventsCollection := mongoSession.DB("ticker").C("events")
+	var event Event
+	err := eventsCollection.Find(bson.M{"_id": eventid}).One(&event)
+	if err != nil {
+		fmt.Printf("no event? %v\n", err)
+		return
+	}
+	var queueEntry QueueEntry
+	queueEntry.Time = time.Now().Add(time.Duration(event.Interval) * time.Second)
+	queueEntry.EventId = eventid
+	queueCollection := mongoSession.DB("ticker").C("queue")
+	err = queueCollection.Insert(queueEntry)
+	if err != nil {
+		fmt.Printf("what? %+v\n", err)
+		return
+	}
+}
+
+func createEvent(event map[string]interface{}) (eventid bson.ObjectId, err error) {
+	mongoSession := getMongoSession()
+	collection := mongoSession.DB("ticker").C("events")
+	newId := bson.NewObjectId()
+	event["_id"] = newId
+	err = collection.Insert(event)
+
+	enqueueEventWithId(newId)
+
+	return newId, err
 }
 
 func postEventsHandler(w http.ResponseWriter, r *http.Request) {
+	buffer, err := ioutil.ReadAll(r.Body)
+	var event map[string]interface{}
+	err = json.Unmarshal(buffer, &event)
+	if err != nil {
+		panic(err)
+	}
+	eventid, err := createEvent(event)
+	check(err)
+	result := map[string]interface{}{
+		"message": "OK",
+		"eventid": eventid,
+	}
+	respondWithResult(w, result)
+}
 
+func deleteAllEvents() (err error) {
+	mongoSession := getMongoSession()
+	collection := mongoSession.DB("ticker").C("events")
+	_, err = collection.RemoveAll(bson.M{})
+	return err
 }
 
 func deleteEventsHandler(w http.ResponseWriter, r *http.Request) {
+	err := deleteAllEvents()
+	check(err)
+	result := map[string]interface{}{
+		"message": "OK",
+	}
+	respondWithResult(w, result)
+}
 
+func getEvent(eventid string, event *Event) (err error) {
+	mongoSession := getMongoSession()
+	collection := mongoSession.DB("ticker").C("events")
+	if bson.IsObjectIdHex(eventid) {
+		oid := bson.ObjectIdHex(eventid)
+		return collection.Find(bson.M{"_id": oid}).One(&event)
+	} else {
+		return collection.Find(bson.M{"name": eventid}).One(&event)
+	}
 }
 
 func getEventHandler(w http.ResponseWriter, r *http.Request) {
-
+	vars := mux.Vars(r)
+	eventid := vars["eventid"]
+	var event Event
+	err := getEvent(eventid, &event)
+	check(err)
+	respondWithResult(w, event)
 }
 
 func postEventHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func deleteEventHandler(w http.ResponseWriter, r *http.Request) {
+func deleteEvent(event Event) {
+	oid := event.Id
+	mongoSession := getMongoSession()
+	collection := mongoSession.DB("ticker").C("events")
+	err := collection.Remove(bson.M{"_id": oid})
+	check(err)
+}
 
+func deleteEventHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	eventid := vars["eventid"]
+	var event Event
+	err := getEvent(eventid, &event)
+	check(err)
+	deleteEvent(event)
+	result := map[string]interface{}{
+		"message": "OK",
+	}
+	respondWithResult(w, result)
 }
 
 func authorize(r *http.Request) (user User, err error) {
@@ -135,11 +250,13 @@ func authorize(r *http.Request) (user User, err error) {
 
 func authorizedHandler(fn func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, err := authorize(r)
-		if err != nil {
-			w.WriteHeader(401)
-			w.Write([]byte("Unauthorized"))
-			return
+		if false {
+			_, err := authorize(r)
+			if err != nil {
+				w.WriteHeader(401)
+				w.Write([]byte("Unauthorized"))
+				return
+			}
 		}
 		fn(w, r)
 	}
@@ -147,6 +264,39 @@ func authorizedHandler(fn func(http.ResponseWriter, *http.Request)) http.Handler
 
 func tickerFunction(t time.Time) {
 	fmt.Println("Tick at", t)
+	mongoSession := getMongoSession()
+	queueCollection := mongoSession.DB("ticker").C("queue")
+	var queueEntry QueueEntry
+
+	err := queueCollection.Find(bson.M{}).Sort("time").One(&queueEntry)
+	if err != nil {
+		return
+	}
+	fmt.Printf("Found queue entry %+v\n", queueEntry)
+	if queueEntry.Time.Before(time.Now()) {
+
+		eventsCollection := mongoSession.DB("ticker").C("events")
+		var event Event
+		err = eventsCollection.Find(bson.M{"_id": queueEntry.EventId}).One(&event)
+		if err != nil {
+			// the event is gone
+			err = queueCollection.Remove(bson.M{"_id": queueEntry.Id})
+			return
+		}
+		if event.Periodic {
+			var newQueueEntry QueueEntry
+			newQueueEntry.Time = queueEntry.Time.Add(time.Duration(event.Interval) * time.Second)
+			newQueueEntry.EventId = queueEntry.EventId
+			err = queueCollection.Insert(newQueueEntry)
+		}
+		// perform the event action
+
+		err = queueCollection.Remove(bson.M{"_id": queueEntry.Id})
+
+		if err != nil {
+			return
+		}
+	}
 }
 
 var port = flag.Uint("p", 8080, "the port to use for serving HTTP requests")
