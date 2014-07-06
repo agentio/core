@@ -146,6 +146,7 @@ func getSessionAndUser(r *http.Request, mongoSession *mgo.Session) (session Sess
 func signoutHandler(w http.ResponseWriter, r *http.Request) {
 	mongoSession := getMongoSession()
 	defer mongoSession.Close()
+	
 	session, user, err := getSessionAndUser(r, mongoSession)
 	if err != nil {
 		fmt.Fprint(w, "No User")

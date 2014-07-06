@@ -69,6 +69,7 @@ func md5HashWithSalt(input, salt string) string {
 func authorizeUser(username string, password string) (user User, err error) {
 	saltedPassword := md5HashWithSalt(password, PasswordSalt)
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	usersCollection := mongoSession.DB("accounts").C("users")
 	err = usersCollection.Find(bson.M{"username": username, "password": saltedPassword}).One(&user)
 	return user, err
@@ -105,6 +106,7 @@ func respondWithResult(w http.ResponseWriter, result interface{}) {
 func getEventsHandler(w http.ResponseWriter, r *http.Request) {
 	var events []Event
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	collection := mongoSession.DB("ticker").C("events")
 	err := collection.Find(nil).All(&events)
 	check(err)
@@ -116,6 +118,7 @@ func getEventsHandler(w http.ResponseWriter, r *http.Request) {
 
 func enqueueEventWithId(eventid bson.ObjectId) {
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	eventsCollection := mongoSession.DB("ticker").C("events")
 	var event Event
 	err := eventsCollection.Find(bson.M{"_id": eventid}).One(&event)
@@ -136,6 +139,7 @@ func enqueueEventWithId(eventid bson.ObjectId) {
 
 func createEvent(event map[string]interface{}) (eventid bson.ObjectId, err error) {
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	collection := mongoSession.DB("ticker").C("events")
 	newId := bson.NewObjectId()
 	event["_id"] = newId
@@ -148,6 +152,7 @@ func createEvent(event map[string]interface{}) (eventid bson.ObjectId, err error
 
 func postEventsHandler(w http.ResponseWriter, r *http.Request) {
 	buffer, err := ioutil.ReadAll(r.Body)
+	r.Body.Close()
 	var event map[string]interface{}
 	err = json.Unmarshal(buffer, &event)
 	if err != nil {
@@ -164,6 +169,7 @@ func postEventsHandler(w http.ResponseWriter, r *http.Request) {
 
 func deleteAllEvents() (err error) {
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	collection := mongoSession.DB("ticker").C("events")
 	_, err = collection.RemoveAll(bson.M{})
 	return err
@@ -180,6 +186,7 @@ func deleteEventsHandler(w http.ResponseWriter, r *http.Request) {
 
 func getEvent(eventid string, event *Event) (err error) {
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	collection := mongoSession.DB("ticker").C("events")
 	if bson.IsObjectIdHex(eventid) {
 		oid := bson.ObjectIdHex(eventid)
@@ -205,6 +212,7 @@ func postEventHandler(w http.ResponseWriter, r *http.Request) {
 func deleteEvent(event Event) {
 	oid := event.Id
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	collection := mongoSession.DB("ticker").C("events")
 	err := collection.Remove(bson.M{"_id": oid})
 	check(err)
@@ -262,9 +270,13 @@ func authorizedHandler(fn func(http.ResponseWriter, *http.Request)) http.Handler
 	}
 }
 
+var counter uint64
+
 func tickerFunction(t time.Time) {
-	fmt.Println("Tick at", t)
+	fmt.Printf("%v\t Tick at %v\n", counter, t)
+	counter++
 	mongoSession := getMongoSession()
+	defer mongoSession.Close()
 	queueCollection := mongoSession.DB("ticker").C("queue")
 	var queueEntry QueueEntry
 
@@ -272,7 +284,7 @@ func tickerFunction(t time.Time) {
 	if err != nil {
 		return
 	}
-	fmt.Printf("Found queue entry %+v\n", queueEntry)
+	fmt.Printf("Found queue entry %+v\n\n", queueEntry)
 	if queueEntry.Time.Before(time.Now()) {
 
 		eventsCollection := mongoSession.DB("ticker").C("events")
@@ -290,7 +302,20 @@ func tickerFunction(t time.Time) {
 			err = queueCollection.Insert(newQueueEntry)
 		}
 		// perform the event action
+		client := &http.Client{}
+		req, err := http.NewRequest(event.Method, event.Url, nil)
+		req.Header.Set("User-Agent", "Ticker")
+		resp, err := client.Do(req)
+		fmt.Printf("%+v\n\n", resp)
 
+		defer resp.Body.Close()
+		if false {
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("%+v\n\n", string(body))
+		}
 		err = queueCollection.Remove(bson.M{"_id": queueEntry.Id})
 
 		if err != nil {
@@ -308,7 +333,7 @@ var API = []struct {
 	description string
 }{
 	{"/ticker/events", "GET", getEventsHandler, "get list of events"},
-	{"/ticker/events", "POST", postEventsHandler, "create an event or send a command to all events (start, stop)"},
+	{"/ticker/events", "POST", postEventsHandler, "create an event"},
 	{"/ticker/events", "DELETE", deleteEventsHandler, "delete all events"},
 	{"/ticker/events/{eventid}", "GET", getEventHandler, "get an event"},
 	{"/ticker/events/{eventid}", "POST", postEventHandler, "send a command to an event (start, stop)"},
