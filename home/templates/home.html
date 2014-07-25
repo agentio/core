@@ -3,7 +3,20 @@
 <div class="row">
 	<div class="medium-12 columns">
 		<h1>Agent I/O</h1>
-		<p>Hello, {{.Username}}!</p>
+		<p>Hello, {{.Session.Username}}</p>
+                <p>Welcome!</p>
+		<table>
+		{{range .Apps}}
+		<tr>
+		<td>{{.name}}</td>
+		<td>{{.description}}</td>
+		<td>{{.capacity}}</td>
+		<td>{{.paths}}</td>
+		<td>{{.domains}}</td>
+		<td>{{.}}</td>
+		</tr>
+		{{end}}
+		</table>
 	</div>
 </div>
 {{end}}
