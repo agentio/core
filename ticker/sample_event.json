@@ -1,0 +1,7 @@
+{
+    "name": "rad",
+    "periodic": 1,
+    "interval": 2,
+    "method": "GET",
+    "url": "http://beta.agent.io"
+}
