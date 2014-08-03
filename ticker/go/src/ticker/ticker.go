@@ -53,12 +53,10 @@ type User struct {
 	Password string        `json:"password" bson:"password"`
 }
 
-type QueueEntry struct {
-	Id      bson.ObjectId `bson:"_id,omitempty"`
-	Time    time.Time     `bson:"time"`
-	EventId bson.ObjectId `bson:"eventid"`
-}
-
+// Events are regularly executed actions.
+// Each event is an HTTP method to be performed on a URL.
+// The interval between events is specified in seconds.
+// Currently only periodic events are supported.
 type Event struct {
 	Id       bson.ObjectId `bson:"_id,omitempty" json:"id"`
 	Name     string        `bson:"name" json:"name"`
@@ -66,6 +64,24 @@ type Event struct {
 	Interval float32       `bson:"interval" json:"interval"`
 	Method   string        `bson:"method" json:"method"`
 	Url      string        `bson:"url" json:"url"`
+}
+
+// QueueEntry instances are used to schedule Events on a queue.
+// Each event typically has one QueueEntry scheduled.
+// A new QueueEntry for an Event is scheduled when its predecessor completes.
+type QueueEntry struct {
+	Id      bson.ObjectId `bson:"_id,omitempty"`
+	Time    time.Time     `bson:"time"`
+	EventId bson.ObjectId `bson:"eventid"`
+}
+
+// Result instances store the results of event executions.
+type Result struct {
+	Id         bson.ObjectId `bson:"_id,omitempty" json:"id"`
+	EventId    bson.ObjectId `bson:"eventid"`
+	Time       time.Time     `bson:"time"`
+	StatusCode int           `bson:"statuscode"`
+	Body       string        `bson:"body"`
 }
 
 func md5HashWithSalt(input, salt string) string {
@@ -117,18 +133,22 @@ func respondWithStatus(w http.ResponseWriter, status int, message string) {
 	w.Write([]byte(message))
 }
 
+func respondWithError(w http.ResponseWriter, err error) {
+	respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+}
+
 func getEventsHandler(w http.ResponseWriter, r *http.Request) {
 	var events []Event
 	mongoSession, err := getMongoSession()
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	defer mongoSession.Close()
 	collection := mongoSession.DB("ticker").C("events")
 	err = collection.Find(nil).All(&events)
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	if events == nil {
@@ -136,6 +156,8 @@ func getEventsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithResult(w, events)
 }
+
+const launchEventsImmediately = true
 
 func enqueueEventWithId(eventid bson.ObjectId) (err error) {
 	mongoSession, err := getMongoSession()
@@ -150,7 +172,13 @@ func enqueueEventWithId(eventid bson.ObjectId) (err error) {
 		return
 	}
 	var queueEntry QueueEntry
-	queueEntry.Time = time.Now().Add(time.Duration(event.Interval*1000000) * time.Microsecond)
+	if launchEventsImmediately {
+		// if we use this line, we schedule the event to occur immediately
+		queueEntry.Time = time.Now()
+	} else {
+		// if we use the following line, we schedule the event to occur one interval from now.
+		queueEntry.Time = time.Now().Add(time.Duration(event.Interval*1000000) * time.Microsecond)
+	}
 	queueEntry.EventId = eventid
 	queueCollection := mongoSession.DB("ticker").C("queue")
 	err = queueCollection.Insert(queueEntry)
@@ -183,12 +211,12 @@ func postEventsHandler(w http.ResponseWriter, r *http.Request) {
 	var event map[string]interface{}
 	err = json.Unmarshal(buffer, &event)
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	eventid, err := createEvent(event)
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	result := map[string]interface{}{
@@ -212,7 +240,7 @@ func deleteAllEvents() (err error) {
 func deleteEventsHandler(w http.ResponseWriter, r *http.Request) {
 	err := deleteAllEvents()
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	result := map[string]interface{}{
@@ -242,7 +270,7 @@ func getEventHandler(w http.ResponseWriter, r *http.Request) {
 	var event Event
 	err := getEvent(eventid, &event)
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	respondWithResult(w, event)
@@ -269,12 +297,12 @@ func deleteEventHandler(w http.ResponseWriter, r *http.Request) {
 	var event Event
 	err := getEvent(eventid, &event)
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	err = deleteEvent(event)
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	result := map[string]interface{}{
@@ -363,6 +391,7 @@ func scheduleNextEventHandler() (err error) {
 			fmt.Printf("processing queue at: %v\n", time.Now())
 			mongoSession, err := getMongoSession()
 			if err != nil {
+				fmt.Printf("error getting database connection %+v\n", err)
 				return
 			}
 			defer mongoSession.Close()
@@ -372,25 +401,45 @@ func scheduleNextEventHandler() (err error) {
 			var event Event
 			err = eventsCollection.Find(bson.M{"_id": queueEntry.EventId}).One(&event)
 			if err != nil {
-				// if the event is gone, we stop processing
+				// if the event is gone, we don't handle it
+				fmt.Printf("No event, removing entry from queue and continuing.\n")
 				err = queueCollection.Remove(bson.M{"_id": queueEntry.Id})
+				scheduleNextEventHandler()
 				return
 			}
 			// perform the event action
 			client := &http.Client{}
 			req, err := http.NewRequest(event.Method, event.Url, nil)
 			if err != nil {
-				return
-			}
-			req.Header.Set("User-Agent", "Ticker")
-			resp, err := client.Do(req)
-			// ignore errors when processing actions, these could be remote errors
-			if err == nil {
-				// fmt.Printf("%+v\n\n", resp)
-				defer resp.Body.Close()
-				body, err := ioutil.ReadAll(resp.Body)
+				fmt.Printf("error creating request for event %+v\n", err)
+			} else {
+				req.Header.Set("User-Agent", "Ticker")
+				fmt.Printf("calling %+v\n", req)
+				resp, err := client.Do(req)
+				// ignore errors when processing actions, these could be remote errors
+				var result Result
+				result.EventId = queueEntry.EventId
+				result.Time = time.Now()
 				if err == nil {
-					fmt.Printf("received %+v bytes\n\n", len(body))
+					fmt.Printf("response %+v\n\n", resp)
+					defer resp.Body.Close()
+					body, err := ioutil.ReadAll(resp.Body)
+					if err == nil {
+						fmt.Printf("received %+v bytes\n\n", len(body))
+					} else {
+						fmt.Printf("error reading response for event %+v\n", err)
+					}
+					result.Body = string(body)
+					result.StatusCode = resp.StatusCode
+				} else {
+					fmt.Printf("error %+v\n\n", err)
+					result.Body = fmt.Sprintf("%v", err)
+					result.StatusCode = 0
+				}
+				resultsCollection := mongoSession.DB("ticker").C("results")
+				err = resultsCollection.Insert(result)
+				if err != nil {
+					fmt.Printf("error saving response for event %+v\n", err)
 				}
 			}
 			// if necessary, create the next queue entry
@@ -429,7 +478,7 @@ func scheduleNextEventHandler() (err error) {
 func startHandler(w http.ResponseWriter, r *http.Request) {
 	err := scheduleNextEventHandler()
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	w.Write([]byte("START OK"))
@@ -438,7 +487,7 @@ func startHandler(w http.ResponseWriter, r *http.Request) {
 func stopHandler(w http.ResponseWriter, r *http.Request) {
 	err := cancelNextEventHandler()
 	if err != nil {
-		respondWithStatus(w, 500, fmt.Sprintf("%v", err))
+		respondWithError(w, err)
 		return
 	}
 	w.Write([]byte("STOP OK"))

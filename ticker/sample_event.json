@@ -1,7 +1,7 @@
 {
     "name": "rad",
     "periodic": 1,
-    "interval": 2,
+    "interval": 30,
     "method": "GET",
     "url": "http://beta.agent.io"
 }
